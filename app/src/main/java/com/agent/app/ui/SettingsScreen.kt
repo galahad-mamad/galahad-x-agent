@@ -21,6 +21,15 @@ import com.agent.app.memory.MemoryStore
 import com.agent.app.service.AgentAccessibilityService
 import kotlinx.coroutines.launch
 
+/** Users often paste host.com/v1 without a scheme - make it a usable URL */
+private fun normUrl(u: String): String {
+    val raw = u.trim()
+    if (raw.isEmpty()) return ""
+    val s = if (raw.startsWith("http://") || raw.startsWith("https://")) raw else "https://$raw"
+    // strip trailing slashes, but never touch a bare "https://" (scheme only)
+    return if (s.removePrefix("https://").removePrefix("http://").isEmpty()) s else s.trimEnd('/')
+}
+
 /**
  * Multi API/provider/model manager + permissions + memory.
  * OpenAI-style: add endpoint+key -> fetch the model list -> multi-select -> switch.
@@ -142,7 +151,14 @@ fun SettingsScreen(
                             Spacer(Modifier.height(6.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 AssistChip(
-                                    onClick = { onProvidersChange(providers, p.id) },
+                                    onClick = {
+                                        // fix a legacy schemeless Base URL at activation time too
+                                        val fixed = providers.map {
+                                            if (it.id == p.id && normUrl(it.baseUrl).isNotBlank())
+                                                it.copy(baseUrl = normUrl(it.baseUrl)) else it
+                                        }
+                                        onProvidersChange(fixed, p.id)
+                                    },
                                     label = { Text(if (isActive) "Active — in use" else "Activate this provider", fontSize = 11.sp) },
                                     colors = AssistChipDefaults.assistChipColors(
                                         containerColor = if (isActive) AppColors.accent1.copy(alpha = 0.18f) else AppColors.bg
@@ -174,7 +190,7 @@ fun SettingsScreen(
                     onClick = {
                         loadingModels = true; errMsg = null
                         scope.launch {
-                            val r = ProviderStore.fetchModels(formUrl.trim(), formKey.trim())
+                            val r = ProviderStore.fetchModels(normUrl(formUrl), formKey.trim())
                             r.onSuccess {
                                 fetchedModels = it
                                 // keep the current active model if it still exists; never auto-pick
@@ -203,10 +219,11 @@ fun SettingsScreen(
                             // the one chip the user tapped IS the active model; no silent fallback
                             val allModels = (fetchedModels + (if (activeModelSel.isNotBlank()) listOf(activeModelSel) else emptyList())).distinct()
                             val np = ProviderCfg(id, formName.ifBlank { "Provider" },
-                                formUrl.trim(), formKey.trim(), allModels, activeModelSel.trim())
+                                normUrl(formUrl), formKey.trim(), allModels, activeModelSel.trim())
                             val rest = providers.filter { it.id != id }
                             val newList = rest + np
-                            onProvidersChange(newList, if (activeId == null || id == activeId) id else activeId)
+                            // saving a provider means the user wants to USE it now - activate it
+                            onProvidersChange(newList, id)
                             editorOpen = false
                         },
                         modifier = Modifier.weight(1f)

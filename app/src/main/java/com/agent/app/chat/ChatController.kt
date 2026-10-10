@@ -344,8 +344,11 @@ class ChatController(
             _agentStatus.value = "Thinking... #$step"
             var res = llmEngine.generateNative(systemPrompt, conversationHistory, toolsJson)
 
-            // automatic retry on transient API errors
-            if (!res.ok) {
+            // automatic retry on transient API errors (config errors never benefit from retrying)
+            val cfgError = { e: String ->
+                e.startsWith("CONFIG:") || e.contains("Expected URL scheme") || e.contains("no scheme was found")
+            }
+            if (!res.ok && !cfgError(res.error)) {
                 Log.w(TAG, "native error, retrying: ${res.error}")
                 addMessage(ChatMessage(System.currentTimeMillis(), "tool", "🔁 Retrying API..."))
                 kotlinx.coroutines.delay(2500)
@@ -354,8 +357,10 @@ class ChatController(
             Log.d(TAG, "step $step native: ok=${res.ok} finish=${res.finishReason} calls=${res.toolCalls.joinToString { it.name }} content=${res.content.take(200)}")
 
             if (!res.ok) {
-                addMessage(ChatMessage(System.currentTimeMillis(), "assistant",
-                    "⚠️ Connection to the model failed (${res.error.take(150)}). Please resend."))
+                val friendly = if (cfgError(res.error))
+                    "⚠️ Model server is not configured: Base URL is empty or has no https:// scheme. Open Settings, save the provider with a full address (e.g. https://host/v1), Activate it, then send again."
+                else "⚠️ Connection to the model failed (${res.error.take(150)}). Please resend."
+                addMessage(ChatMessage(System.currentTimeMillis(), "assistant", friendly))
                 _agentStatus.value = ""
                 return
             }

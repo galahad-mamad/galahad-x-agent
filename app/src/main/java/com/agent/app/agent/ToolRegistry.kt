@@ -60,13 +60,13 @@ class ToolRegistry(
   {"name":"open_settings","desc":"Open phone settings","args":"{}"},
   {"name":"open_app","desc":"Open an app","args":"{\"package\":\"package name or app name\"}"},
   {"name":"get_screen","desc":"Read the current screen content from the accessibility tree","args":"{}"},
-  "desc":"Tap a text item on screen",\"args\":\"{\\\"text\\\":\\\"item text\\\"}\"
-  \"desc\":\"Type text into the focused input field\",\"args\":\"{\\\"text\\\":\\\"text\\\"}\"
+  {"name":"click","desc":"Tap a text item on screen","args":"{\"text\":\"item text\"}"},
+  {"name":"type","desc":"Type text into the focused input field","args":"{\"text\":\"text\"}"},
   {"name":"scroll_down","desc":"Scroll down","args":"{}"},
   {"name":"swipe","desc":"Swipe (up/down/left/right)","args":"{\"direction\":\"up|down|left|right\"}"},
   {"name":"back","desc":"Back button","args":"{}"},
   {"name":"home","desc":"Home button","args":"{}"},
-  \"desc\":\"Run a shell command. Output includes stderr and exit code\",\"args\":\"{\\\"cmd\\\":\\\"command\\\",\\\"timeout_sec\\\":30}\"
+  {"name":"shell","desc":"Run a shell command. Output includes stderr and exit code","args":"{\"cmd\":\"command\",\"timeout_sec\":30}"},
   {"name":"write_file","desc":"Write a file. For large content write in chunks with append:true (~2000 chars each)","args":"{\"path\":\"file name\",\"content\":\"content\",\"append\":false}"},
   {"name":"read_file","desc":"Read a file","args":"{\"path\":\"file name\"}"},
   {"name":"edit_file","desc":"Edit a file with find/replace: replaces exact old_text with new_text (keeps the rest). Use it to fix errors in scripts instead of rewriting the whole file","args":"{\"path\":\"script.py\",\"old_text\":\"exact text to find\",\"new_text\":\"replacement\"}"},
@@ -104,7 +104,8 @@ class ToolRegistry(
   {"name":"wait","desc":"Wait a few seconds","args":"{\"seconds\":2}"},
   {"name":"done","desc":"Call this when the task is fully done","args":"{\"result\":\"task summary\"}"}
 ]
-        """.trimIndent()
+        
+""".trimIndent()
     }
 
     /**
@@ -341,10 +342,22 @@ class ToolRegistry(
         val timeout = args.optInt("timeout_sec", 60).coerceIn(5, 120)
 
         return try {
-            // if it is a file name, run the file
+            // if it is a file name, run the file with the right interpreter
             val file = File(workDir(), script)
             val cmd = if (file.exists()) {
-                "sh ${file.absolutePath}"
+                val firstLine = file.bufferedReader().use { it.readLine() }?.trim() ?: ""
+                val shebang = if (firstLine.startsWith("#!")) firstLine.removePrefix("#!").trim() else ""
+                val isPython = file.name.endsWith(".py") || shebang.contains("python")
+                when {
+                    // python script: run with the bundled python (or system python3 fallback)
+                    isPython -> if (pyBin().exists()) "${pyBin().absolutePath} ${file.absolutePath}"
+                                else "python3 ${file.absolutePath}"
+                    // absolute interpreter from shebang (e.g. #!/data/.../node) when it exists
+                    shebang.startsWith("/") && !shebang.startsWith("/usr/bin/env") ->
+                        "${shebang.split(Regex("\\s+")).first()} ${file.absolutePath}"
+                    // default: sh (a shebang line is just a comment inside it)
+                    else -> "sh ${file.absolutePath}"
+                }
             } else {
                 "sh -c ${JSONObject.quote(script)}"
             }

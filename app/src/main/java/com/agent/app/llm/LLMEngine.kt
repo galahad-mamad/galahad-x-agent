@@ -197,6 +197,14 @@ class LLMEngine {
         maxTokens: Int = 6144
     ): NativeResult = withContext(Dispatchers.IO) {
         try {
+            // config guard: empty or schemeless endpoint fails HERE with a clear
+            // message instead of OkHttp's "Expected URL scheme 'http' or 'https'"
+            val ep = apiEndpoint.trim()
+            if (ep.isEmpty() || !(ep.startsWith("http://") || ep.startsWith("https://"))) {
+                return@withContext NativeResult(false,
+                    "CONFIG: server address is not set (Base URL is empty or missing https://) - open Settings, edit the provider, set Base URL like https://host/v1 and Activate it",
+                    "", emptyList(), "")
+            }
             val messages = org.json.JSONArray().apply {
                 put(JSONObject().put("role", "system").put("content", systemPrompt))
                 // history character budget: walk back from newest to the cap — keeps tool pairs intact
@@ -228,7 +236,7 @@ class LLMEngine {
                 .put("temperature", temperature)
                 .put("max_tokens", maxTokens)
             val request = Request.Builder()
-                .url("$apiEndpoint/chat/completions")
+                .url("$ep/chat/completions")
                 .addHeader("Authorization", "Bearer $apiKey")
                 .addHeader("Content-Type", "application/json")
                 .post(json.toString().toRequestBody("application/json".toMediaType()))
