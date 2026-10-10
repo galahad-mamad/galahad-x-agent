@@ -83,11 +83,5 @@ cd galahad-x-agent
 - **Foreground Service**: keep the agent running while the app is backgrounded
 - All data stays on-device; the only outbound traffic is your own API calls
 
-## Contact Us / گزارش مشکل 🐞
-- تلگرام Telegram: [@hitlerfortest](https://t.me/hitlerfortest)
-- اینستاگرام Instagram: [galahad_mamad](https://instagram.com/galahad_mamad)
-
-گزارش فارسی یا انگلیسی welcome — گزارش در هر دو زبان پذیرفته می‌شود.
-
 ## License
 MIT
