@@ -17,9 +17,15 @@ class ShellBridge {
     /**
      * Execute a shell command and return the output
      */
-    fun execute(command: String): ShellResult {
+    fun execute(command: String, workDir: java.io.File? = null, extraPath: String? = null): ShellResult {
         return try {
-            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
+            val pb = java.lang.ProcessBuilder("sh", "-c", command)
+            if (workDir != null) pb.directory(workDir)
+            if (extraPath != null) {
+                val cur = pb.environment()["PATH"] ?: "/system/bin:/system/xbin:/bin"
+                pb.environment()["PATH"] = "$extraPath:$cur"
+            }
+            val process = pb.start()
             val output = process.inputStream.bufferedReader().readText()
             val error = process.errorStream.bufferedReader().readText()
             val exitCode = process.waitFor()
@@ -32,9 +38,16 @@ class ShellBridge {
     /**
      * Execute with timeout (kills process on timeout)
      */
-    fun executeWithTimeout(command: String, timeoutSec: Int): ShellResult {
+    fun executeWithTimeout(command: String, timeoutSec: Int, workDir: java.io.File? = null, extraPath: String? = null, extraEnv: Map<String, String> = emptyMap()): ShellResult {
         return try {
-            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
+            val pb = java.lang.ProcessBuilder("sh", "-c", command)
+            if (workDir != null) pb.directory(workDir)
+            if (extraPath != null) {
+                val cur = pb.environment()["PATH"] ?: "/system/bin:/system/xbin:/bin"
+                pb.environment()["PATH"] = "$extraPath:$cur"
+            }
+            pb.environment().putAll(extraEnv)
+            val process = pb.start()
             val outThread = Thread { }
             // read streams in separate threads to avoid pipe deadlock
             val out = StringBuilder()

@@ -69,6 +69,7 @@ class ToolRegistry(
   \"desc\":\"Run a shell command. Output includes stderr and exit code\",\"args\":\"{\\\"cmd\\\":\\\"command\\\",\\\"timeout_sec\\\":30}\"
   {"name":"write_file","desc":"Write a file. For large content write in chunks with append:true (~2000 chars each)","args":"{\"path\":\"file name\",\"content\":\"content\",\"append\":false}"},
   {"name":"read_file","desc":"Read a file","args":"{\"path\":\"file name\"}"},
+  {"name":"edit_file","desc":"Edit a file with find/replace: replaces exact old_text with new_text (keeps the rest). Use it to fix errors in scripts instead of rewriting the whole file","args":"{\"path\":\"script.py\",\"old_text\":\"exact text to find\",\"new_text\":\"replacement\"}"},
   {"name":"list_files","desc":"List files in the working directory (scripts/)","args":"{\"path\":\".\"}"},
   {"name":"run_script","desc":"Run an sh script. Output includes stderr and exit code","args":"{\"script\":\"script text or file name\",\"timeout_sec\":60}"},
   {"name":"download","desc":"Download a file from the internet by url","args":"{\"url\":\"https://...\",\"filename\":\"file name\"}"},
@@ -90,7 +91,7 @@ class ToolRegistry(
   {"name":"skill_save","desc":"Save a repeatable routine as a new skill (long-term memory). name: short English, content: step-by-step with exact commands","args":"{\"name\":\"web-build\",\"content\":\"# ...\"}"},
   {"name":"skill_update","desc":"Update an existing skill: replace old_text with new_text (empty old_text = append)","args":"{\"name\":\"web-build\",\"old_text\":\"old text\",\"new_text\":\"new text\"}"},
   {"name":"skill_delete","desc":"Delete a saved skill","args":"{\"name\":\"name\"}"},
-  {"name":"install_tool","desc":"Install a tool: python (3.14+pip+numpy+pillow) or ffmpeg. Always try this first before saying \\"this is impossible\\"","args":"{\"name\":\"python\"}"},
+  {"name":"install_tool","desc":"Install a tool. Bundled: python (3.14+pip+numpy+pillow), ffmpeg. ANY other static binary (nmap, curl...): pass name + url of a static build for this device arch. For python packages use pip","args":"{\"name\":\"python\"}"},
   {"name":"memory","desc":"Persistent memory across sessions — save/edit facts. target=user for user preferences, target=memory for the rest. Single: action+content/old_text. Batch: operations=[{action, content?, old_text?}]","args":"{\"target\":\"user\",\"operations\":[{\"action\":\"add\",\"content\":\"user loves coffee\"}]}"},
   {"name":"session_search","desc":"Search all past chat sessions — when the user mentions something said/done before. Result: id,title,hits,snippet","args":"{\"query\":\"multi-word search\"}"},
   {"name":"python","desc":"Run Python 3.14: -c code, a script, or -m module","args":"{\"args\":\"-c print(1)\"}"},
@@ -124,6 +125,7 @@ class ToolRegistry(
                 "shell" -> runShell(args)
                 "write_file" -> writeFile(args)
                 "read_file" -> readFile(args)
+                "edit_file" -> editFile(args)
                 "list_files" -> listFiles(args)
                 "run_script" -> runScript(args)
                 "download" -> download(args)
@@ -265,7 +267,7 @@ class ToolRegistry(
         val cmd = args.optString("cmd", "")
         if (cmd.isBlank()) return "ERROR: empty command"
         val timeout = args.optInt("timeout_sec", 60).coerceIn(5, 120)
-        val r = shell.executeWithTimeout(cmd, timeout)
+        val r = shell.executeWithTimeout(cmd, timeout, workDir(), pyBinDir(), pyShellEnv())
         return formatShellOutput(r.exitCode, r.output, r.error, r.timedOut)
     }
 
@@ -293,6 +295,28 @@ class ToolRegistry(
             else f.readText().take(5000)
         } catch (e: Exception) {
             "ERROR: read failed - ${e.message}"
+        }
+    }
+
+    /** Targeted find/replace edit - keeps the rest of the file intact */
+    private fun editFile(args: JSONObject): String {
+        val path = args.optString("path", "")
+        val oldText = args.optString("old_text")
+        val newText = args.optString("new_text")
+        if (path.isBlank()) return "ERROR: empty path"
+        if (oldText.isBlank()) return "ERROR: empty old_text - copy the exact text to replace from read_file"
+        return try {
+            val f = if (path.startsWith("/")) File(path) else File(workDir(), path)
+            if (!f.isFile) return "ERROR: file '$path' not found"
+            val content = f.readText()
+            if (!content.contains(oldText))
+                return "ERROR: old_text not found in '$path' - copy it EXACTLY as read_file showed it (spaces, quotes and case matter)"
+            val count = content.split(oldText).size - 1
+            f.copyTo(File(f.parentFile, f.name + ".bak"), overwrite = true)
+            f.writeText(content.replace(oldText, newText))
+            "EDITED: $path ($count replacement${if (count > 1) "s" else ""}) - backup saved as ${f.name}.bak"
+        } catch (e: Exception) {
+            "ERROR: edit failed: ${e.message}"
         }
     }
 
@@ -324,10 +348,10 @@ class ToolRegistry(
             } else {
                 "sh -c ${JSONObject.quote(script)}"
             }
-            val r = shell.executeWithTimeout(cmd, timeout)
+            val r = shell.executeWithTimeout(cmd, timeout, workDir(), pyBinDir(), pyShellEnv())
             formatShellOutput(r.exitCode, r.output, r.error, r.timedOut)
         } catch (e: Exception) {
-            "ERROR: script failedfailed - ${e.message}"
+            "ERROR: script failed: ${e.message}"
         }
     }
 
@@ -398,13 +422,29 @@ class ToolRegistry(
 
     // ============ Skill store ============
 
-    private fun skillTool(name: String, args: JSONObject): String = when (name) {
-        "skill_list" -> skillStore.list()
-        "skill_load" -> skillStore.load(args.optString("name"))
-        "skill_save" -> skillStore.save(args.optString("name"), args.optString("content"))
-        "skill_update" -> skillStore.update(args.optString("name"), args.optString("old_text"), args.optString("new_text"))
-        "skill_delete" -> skillStore.delete(args.optString("name"))
-        else -> "ERROR"
+    private fun skillTool(name: String, args: JSONObject): String {
+        val skillName = args.optString("name").ifBlank { args.optString("skill") }.ifBlank { args.optString("skill_name") }
+        fun content(): String = args.optString("content").ifBlank { args.optString("text") }
+            .ifBlank { args.optString("steps") }.ifBlank { args.optString("instructions") }
+            .ifBlank { args.optString("body") }
+        return when (name) {
+            "skill_list" -> skillStore.list()
+            "skill_load" -> {
+                val direct = skillStore.load(skillName)
+                if (direct.startsWith("ERROR: skill")) skillStore.loadByPrefix(skillName) else direct
+            }
+            "skill_save" -> {
+                val c = content()
+                if (skillName.isBlank()) "ERROR: empty skill name - pass a short English name like pentest-recon"
+                else if (c.isBlank()) "ERROR: empty content - put the step-by-step routine in the content field"
+                else skillStore.save(skillName, c)
+            }
+            "skill_update" -> skillStore.update(skillName,
+                args.optString("old_text").ifBlank { args.optString("old") },
+                args.optString("new_text").ifBlank { args.optString("new").ifBlank { args.optString("content") } })
+            "skill_delete" -> skillStore.delete(skillName)
+            else -> "ERROR: unknown skill op"
+        }
     }
 
     // ===== python (termux prefix extracted from assets) =====
@@ -488,11 +528,60 @@ class ToolRegistry(
         return if (tail.isBlank()) "(no output) exit=${proc.exitValue()}" else tail
     }
 
+    /** python bin dir for adding to shell PATH (empty if not installed) */
+    private fun pyBinDir(): String = if (pyBin().exists()) pyBin().parent else ""
+
+    /** env for shell commands when python is installed (PYTHONHOME etc - prefix is relocated) */
+    private fun pyShellEnv(): Map<String, String> = if (pyBin().exists()) pyEnv() else emptyMap()
+
+    /** Auto-install python once in background at first launch (idempotent) */
+    fun ensurePythonAsync() {
+        if (pyBin().exists()) return
+        Thread {
+            try { Log.d(TAG, "auto-installing python in background"); installPython() }
+            catch (e: Exception) { Log.w(TAG, "auto python install: ${e.message}") }
+        }.start()
+    }
+
+    /** Tokenize a python args string honoring quotes, then run WITHOUT any shell (multiline code safe) */
+    private fun pyTokenize(s: String): List<String> {
+        val out = mutableListOf<String>()
+        val cur = StringBuilder()
+        var quote: Char? = null
+        for (ch in s) {
+            when {
+                quote != null -> { if (ch == quote) quote = null else cur.append(ch) }
+                ch == '"' || ch == '\'' -> quote = ch
+                ch.isWhitespace() -> { if (cur.isNotEmpty()) { out += cur.toString(); cur.clear() } }
+                else -> cur.append(ch)
+            }
+        }
+        if (cur.isNotEmpty()) out += cur.toString()
+        return out
+    }
+
+    /** Run python with argv list - NO shell involved, so multiline -c code and quotes are safe */
+    private fun pyExec(argv: List<String>, timeoutSec: Long): String {
+        val pb = ProcessBuilder(listOf(pyBin().absolutePath) + argv)
+            .directory(workDir())
+            .redirectErrorStream(true)
+        pb.environment().putAll(pyEnv())
+        val proc = pb.start()
+        val output = proc.inputStream.bufferedReader().readText()
+        if (!proc.waitFor(timeoutSec, java.util.concurrent.TimeUnit.SECONDS)) {
+            proc.destroyForcibly()
+            return output.take(3000) + "\n[timeout ${timeoutSec}s - long command killed]"
+        }
+        val tail = output.takeLast(4000)
+        return if (tail.isBlank()) "(no output) exit=${proc.exitValue()}" else tail
+    }
+
     private fun runPythonTool(args: JSONObject): String {
         val pyArgs = args.optString("args").ifBlank { args.optString("cmd") }
         if (pyArgs.isBlank()) return "ERROR: empty args - example: -c \"print(2**100)\" or myscript.py or -m pip install requests"
         if (!pyBin().exists()) return "ERROR: python not installed - run install_tool with name=python first"
-        return shExec("${pyBin().absolutePath} $pyArgs", 180, pyEnv())
+        // run directly with argv - NO shell, so multiline -c code, quotes and $ are all safe
+        return pyExec(pyTokenize(pyArgs), 180)
     }
 
     /** Search past sessions: keyword + snippet */
@@ -580,9 +669,37 @@ class ToolRegistry(
         java.io.File(context.filesDir, "tools").apply { mkdirs() }
 
     private fun installTool(args: JSONObject): String {
-        val name = args.optString("name", "ffmpeg").lowercase()
+        val name = args.optString("name", "ffmpeg").lowercase().replace(Regex("[^a-z0-9._-]"), "")
+        val url = args.optString("url")
         if (name == "python") return installPython()
-        if (name != "ffmpeg") return "ERROR: only ffmpeg and python are installable."
+        // generic: install ANY static binary from a url (nmap, curl, git...)
+        if (url.isNotBlank()) {
+            val exe = java.io.File(toolsDir(), name)
+            return try {
+                val req = Request.Builder().url(url).build()
+                val resp = httpClient.newCall(req).execute()
+                if (!resp.isSuccessful) return "ERROR: HTTP ${resp.code} downloading $url"
+                val bytes = resp.body?.bytes() ?: return "ERROR: empty body"
+                exe.writeBytes(bytes)
+                exe.setExecutable(true, false)
+                Log.d(TAG, "install_binary: $name ${bytes.size} bytes from $url")
+                // smoke test: does it at least execute?
+                val pb = ProcessBuilder(exe.absolutePath, "--version").redirectErrorStream(true)
+                val proc = pb.start()
+                val out = proc.inputStream.bufferedReader().readText().take(200)
+                proc.waitFor(20, java.util.concurrent.TimeUnit.SECONDS)
+                proc.destroy()
+                val linkedFail = out.contains("CANNOT LINK") || out.contains("library")
+                "INSTALLED: $name (${bytes.size / 1024}KB) at ${exe.absolutePath}" +
+                    (if (linkedFail) "\nWARNING: first run output: $out\n(this may need an arm64 build instead of this device's ${android.os.Build.SUPPORTED_ABIS.firstOrNull()})" else "")
+            } catch (e: Exception) {
+                "ERROR: install $name failed - ${e.message}"
+            }
+        }
+        if (name != "ffmpeg") {
+            val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: ""
+            return "ERROR: '$name' is not bundled. You CAN install any static binary: install_tool name=$name url=<download url of a static $abi build> (search the web for it), chmod happens automatically. For python packages use the pip tool"
+        }
         val exe = java.io.File(toolsDir(), "ffmpeg")
         if (exe.exists() && exe.canExecute()) {
             return "ALREADY: ffmpeg installed (${exe.length() / (1024 * 1024)}MB). Use it via the run_ffmpeg tool"

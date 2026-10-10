@@ -88,6 +88,9 @@ class MainActivity : ComponentActivity() {
         // and the running loop survive Home/return
         chatController = ChatController.instance
             ?: ChatController(applicationContext, llmEngine, memory, toolRegistry)
+        // python ships in assets - extract once in background so the agent
+        // never wastes a step calling install_tool for it
+        toolRegistry.ensurePythonAsync()
         // UI settings must apply to the same controller's engine
         llmEngine = chatController.engine
         

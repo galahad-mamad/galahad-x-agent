@@ -41,6 +41,20 @@ class SkillStore(private val context: Context) {
         return md.readText().take(8000)
     }
 
+    /** Fallback: load the only skill whose name contains the query (fuzzy load) */
+    fun loadByPrefix(query: String): String {
+        val q = sanitize(query)
+        if (q.isBlank()) return "ERROR: empty skill name"
+        val dirs = root().listFiles { f -> f.isDirectory } ?: return "ERROR: skill '$query' not found. Run skill_list."
+        val hits = dirs.filter { it.name.contains(q) || q.contains(it.name) }
+            .filter { File(it, "SKILL.md").isFile }
+        return when (hits.size) {
+            0 -> "ERROR: skill '$query' not found. Run skill_list to see exact names."
+            1 -> File(hits[0], "SKILL.md").readText().take(8000)
+            else -> "ERROR: '$query' is ambiguous: ${hits.joinToString { it.name }} - use the exact name"
+        }
+    }
+
     fun save(name: String, content: String): String {
         val n = sanitize(name)
         if (n.isBlank()) return "ERROR: invalid skill name (English letters/digits/-/_ only)"

@@ -450,7 +450,7 @@ class ChatController(
                     JSONObject()
                 }
                 if (argsBroken) {
-                    val obs = "ERROR: args of tool '${tc.name}' were truncated (out of tokens). Split this task into chunks${if (tc.name == "write_file") " — max 800 chars per chunk with append:true" else ""}"
+                    val obs = "ERROR: args of tool '${tc.name}' were truncated (out of tokens). Split this task into chunks${if (tc.name == "write_file") " — max 800 chars per chunk with append:true" else ""}${if (tc.name == "skill_save") " — save a SHORT core version now (name + 5-10 bullet steps), then use skill_update to append details" else ""}"
                     conversationHistory.add(mapOf("role" to "tool", "content" to obs, "tool_call_id" to tc.id))
                     addMessage(ChatMessage(System.currentTimeMillis(), "tool", "✂️ ${tc.name}: args truncated — splitting into smaller pieces"))
                     continue
@@ -492,7 +492,13 @@ class ChatController(
      */
     private fun writeLabel(args: JSONObject): String {
         val n = args.optString("content").length
-        val base = "📝 Writing " + args.optString("path").substringAfterLast("/")
+        val path = args.optString("path")
+        val name = path.substringAfterLast("/")
+        // overwriting an existing file = editing, not creating
+        val exists = try {
+            java.io.File(if (path.startsWith("/")) path else java.io.File(context.filesDir, path).absolutePath).isFile
+        } catch (e: Exception) { false }
+        val base = if (exists && !args.optBoolean("append")) "✏️ Editing $name" else "📝 Writing $name"
         return if (args.optBoolean("append")) base + " +" + n + "ch" else base + " (" + n + "ch)"
     }
 
@@ -500,6 +506,7 @@ class ChatController(
         "plan" -> "📋 Planning..."
         "write_file" -> writeLabel(args)
         "read_file" -> "📖 Reading ${args.optString("path").substringAfterLast("/")}"
+        "edit_file" -> "✏️ Editing ${args.optString("path").substringAfterLast("/")} (find/replace)"
         "list_files", "list_dir_custom" -> "📂 Listing files..."
         "shell", "run_script" -> "⚙️ ${args.optString("cmd").take(55)}"
         "run_background" -> "🔄 Background: ${args.optString("cmd").take(50)}"
@@ -674,6 +681,7 @@ class ChatController(
             "stop_server" -> "⏹ Server stopped"
             "server_status" -> "🔍 Checking server status"
             "write_file" -> "📝 Writing: ${args.optString("path")}${if (args.optBoolean("append")) " (append)" else ""}"
+            "edit_file" -> "Editing file ${args.optString("path")} (find/replace)"
             "list_files" -> "📂 Listing: ${args.optString("path", ".")}"
             "serve_dir" -> "🌐 ${args.optString("path")}"
             "vision_analyze" -> "Inspecting the image..."
@@ -736,8 +744,9 @@ You act like a professional assistant: you chat, do real tasks, write scripts, a
 
 ## Your runtime environment (no root, no Termux)
 - Shell: toybox sh with its tools (ls, cp, grep, sed, awk, tar...)
-- **You have Python 3.14 + pip + numpy + pillow**: if not installed yet, run `install_tool name=python` once, then use `python` and `pip` — pip install from PyPI works. Native libs without wheels won't install, but numpy/pillow are already there
+- **Python 3.14 + pip + numpy + pillow are PREINSTALLED** (auto-installed on first launch): use the `python` / `pip` tools or plain `python3` in shell right away. NEVER run install_tool for python unless a tool explicitly says "python not installed" — it wastes a step
 - ffmpeg: `install_tool name=ffmpeg`, then `run_ffmpeg`
+- Any other CLI tool (nmap, curl, git...): `install_tool name=<tool> url=<static binary url for this arch>` - search the web for a static build if you do not know the url; chmod is automatic
 - **NEVER say "I don't have python / it can't be installed" — install it first**; only after a real failure say so honestly
 - Projects live in the app's private space; send the final output with `send_file`
 
@@ -781,9 +790,13 @@ When an OBSERVATION contains ERROR, a non-zero exit code, or STDERR:
 
 ### 4. Scripting
 - Write scripts with write_file into scripts/
-- Run them with run_script
+- To FIX an error in a script: read_file it, then edit_file with the exact old_text/new_text - do NOT rewrite the whole file
+- Run them with run_script (cwd = app files dir = the same place list_files/read_file see, so relative paths like scripts/x.py work)
+- python3 IS on the shell PATH: after install_tool name=python, both `python3 script.py` in shell/run_script and the python tool work
+- For one-off python: python tool with -c — multiline code is supported, quotes are handled for you
 - On error: read_file, fix, run again
 - Available: sh, toybox (sed, awk, grep, tar, gzip, ping, ss, netstat, df, du, find, sort, wc...)
+- NEVER name your script files after python stdlib modules (inspect.py, json.py, sys.py...) - it shadows the real module and breaks imports
 
 ### 5. Working with apps
 - Open: open_app by package name or app name
