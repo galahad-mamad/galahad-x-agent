@@ -113,7 +113,7 @@ class ChatController(
             addMessage(
                 ChatMessage(
                     id = System.currentTimeMillis(), role = "assistant",
-                    content = "Welcome to **Galahad-X-Agent**! 🤖\n\nI can control your phone, write & run code, browse the web, see images, and build websites and apps.\n\nJust tell me what to do."
+                    content = "Welcome to **Galahad-X-Agent** v0.14.4! 🤖\n\nI can control your phone, write & run code, browse the web, see images, and build websites and apps.\n\nJust tell me what to do.\n\n🐞 Found a bug? Report it: Telegram @hitlerfortest • Instagram galahad_mamad"
                 )
             )
         } else {

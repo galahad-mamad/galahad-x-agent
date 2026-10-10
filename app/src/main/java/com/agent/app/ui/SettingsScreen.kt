@@ -35,6 +35,10 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val pkgVersion = remember {
+        try { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?" }
+        catch (e: Exception) { "?" }
+    }
     var isAccessibilityEnabled by remember {
         mutableStateOf(AgentAccessibilityService.isEnabled(context))
     }
@@ -293,6 +297,24 @@ fun SettingsScreen(
                     genMem.take(4).forEach { Text("• $it", fontSize = 11.sp, color = AppColors.textSecondary) }
                 }
             }
+
+            Divider(color = AppColors.border)
+
+            // ---------- contact / bug reports ----------
+            Text("CONTACT US", style = MaterialTheme.typography.labelLarge, color = AppColors.textSecondary)
+            Text("Found a bug or have feedback? Report it — reports in Persian or English are welcome.",
+                style = MaterialTheme.typography.bodySmall, color = AppColors.textSecondary)
+            Button(onClick = {
+                context.startActivity(android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/hitlerfortest")))
+            }, modifier = Modifier.fillMaxWidth()) { Text("Report on Telegram — @hitlerfortest") }
+            OutlinedButton(onClick = {
+                context.startActivity(android.content.Intent(
+                    android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://instagram.com/galahad_mamad")))
+            }, modifier = Modifier.fillMaxWidth()) { Text("Instagram — galahad_mamad") }
+
+            Text("Galahad-X Agent v$pkgVersion", fontSize = 11.sp, color = AppColors.textSecondary,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
 }
