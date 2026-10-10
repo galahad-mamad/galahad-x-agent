@@ -477,10 +477,32 @@ class ToolRegistry(
 
     private fun pyBin(): java.io.File = java.io.File(pyPrefix(), "bin/python3.14")
 
+    /** true only if the bundled python actually executes (catches broken/foreign binaries) */
+    private fun pyBinRuns(): Boolean {
+        return try {
+            if (!pyBin().exists()) {
+                false
+            } else {
+                // same environment as pyExec: the relocated python needs PYTHONHOME
+                val pb = ProcessBuilder(listOf(pyBin().absolutePath, "--version")).redirectErrorStream(true)
+                pb.environment().putAll(pyEnv())
+                val p = pb.start()
+                val finished = p.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
+                if (!finished) p.destroyForcibly()
+                finished && p.exitValue() == 0
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     private fun installPython(): String {
         try {
             if (pyBin().exists()) {
-                return "ALREADY INSTALLED: Python 3.14 + pip + numpy + pillow - now use the python or pip tool"
+                if (pyBinRuns()) return "ALREADY INSTALLED: Python 3.14 + pip + numpy + pillow - now use the python or pip tool"
+                // present but not runnable (foreign/desktop binary at the path) - repair from the bundled asset
+                Log.w(TAG, "install_python: binary present but not runnable - repairing")
+                pyPrefix().deleteRecursively()
             }
             val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: ""
             val asset = when {
@@ -549,9 +571,15 @@ class ToolRegistry(
 
     /** Auto-install python once in background at first launch (idempotent) */
     fun ensurePythonAsync() {
-        if (pyBin().exists()) return
         Thread {
-            try { Log.d(TAG, "auto-installing python in background"); installPython() }
+            try {
+                if (pyBin().exists()) {
+                    if (pyBinRuns()) return@Thread
+                    Log.w(TAG, "python present but not runnable - reinstalling from asset")
+                    pyPrefix().deleteRecursively()
+                }
+                Log.d(TAG, "auto-installing python in background"); installPython()
+            }
             catch (e: Exception) { Log.w(TAG, "auto python install: ${e.message}") }
         }.start()
     }
@@ -594,7 +622,11 @@ class ToolRegistry(
         if (pyArgs.isBlank()) return "ERROR: empty args - example: -c \"print(2**100)\" or myscript.py or -m pip install requests"
         if (!pyBin().exists()) return "ERROR: python not installed - run install_tool with name=python first"
         // run directly with argv - NO shell, so multiline -c code, quotes and $ are all safe
-        return pyExec(pyTokenize(pyArgs), 180)
+        return try {
+            pyExec(pyTokenize(pyArgs), 180)
+        } catch (e: Exception) {
+            "ERROR: python failed to start (${e.message}) - run install_tool with name=python to repair the installation"
+        }
     }
 
     /** Search past sessions: keyword + snippet */
@@ -1312,7 +1344,11 @@ class ToolRegistry(
         if (timedOut) sb.appendLine("⚠️ TIMEOUT: command took too long and was killed")
         if (out.isNotBlank()) sb.appendLine(out.take(4000))
         if (err.isNotBlank()) sb.appendLine("--- STDERR ---\n${err.take(2000)}")
-        sb.appendLine("--- exit code: $exitCode ---")
+        val combined = out + "\n" + err
+        val loaderFail = combined.contains("CANNOT LINK EXECUTABLE") ||
+            (exitCode == 126 && combined.contains("No such file or directory"))
+        if (loaderFail) sb.appendLine("[hint] this binary cannot run here: wrong libc or prefix. Android needs an Android (bionic) build - desktop/glibc archives (python.org, astral-sh, *-linux-x86_64*) never work. For python use install_tool name=python")
+        sb.appendLine("--- exit code: ${exitCode} ---")
         if (exitCode != 0 && out.isBlank() && err.isBlank()) {
             sb.appendLine("command errored with no output. the command may not exist (try: which <cmd>)")
         }
