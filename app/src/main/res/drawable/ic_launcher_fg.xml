@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Galahad-X-Agent logo: GX monogram on a deep-indigo ground -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- G: open arc + inner bar -->
+    <path
+        android:pathData="M 53,44.5 A 13,13 0 1 0 53,63.5 L 53,54 L 45,54"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+
+    <!-- X: two diagonal strokes -->
+    <path
+        android:pathData="M 61,42 L 79,66"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M 79,42 L 61,66"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+
+    <!-- accent dot: bright signal -->
+    <path
+        android:pathData="M 70,30 m -3.5,0 a 3.5,3.5 0 1 0 7,0 a 3.5,3.5 0 1 0 -7,0"
+        android:fillColor="#6C8BFF" />
+</vector>

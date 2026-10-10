@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Galahad-X-Agent</string>
+    <string name="accessibility_label">Galahad-X-Agent - Screen Control</string>
+    <string name="notification_listener_label">Galahad-X-Agent - Notification Access</string>
+</resources>
