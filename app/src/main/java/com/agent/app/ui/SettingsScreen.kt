@@ -51,11 +51,12 @@ fun SettingsScreen(
     var formUrl by remember { mutableStateOf("") }
     var formKey by remember { mutableStateOf("") }
     var fetchedModels by remember { mutableStateOf<List<String>>(emptyList()) }
-    var selectedModels by remember { mutableStateOf<Set<String>>(emptySet()) }
     var loadingModels by remember { mutableStateOf(false) }
     var modelQuery by remember { mutableStateOf("") }
     var customModel by remember { mutableStateOf("") }
     var errMsg by remember { mutableStateOf<String?>(null) }
+    // single explicit active-model selection (radio semantics — never a hidden multi-select default)
+    var activeModelSel by remember { mutableStateOf("") }
 
     fun openEditor(p: ProviderCfg?) {
         editing = p; editorOpen = true; isNew = p == null
@@ -63,7 +64,7 @@ fun SettingsScreen(
         formUrl = p?.baseUrl ?: ""
         formKey = p?.apiKey ?: ""
         fetchedModels = p?.models ?: emptyList()
-        selectedModels = p?.models?.toSet() ?: emptySet()
+        activeModelSel = p?.model ?: ""
         errMsg = null
     }
 
@@ -176,7 +177,8 @@ fun SettingsScreen(
                             val r = ProviderStore.fetchModels(formUrl.trim(), formKey.trim())
                             r.onSuccess {
                                 fetchedModels = it
-                                selectedModels = it.toSet()
+                                // keep the current active model if it still exists; never auto-pick
+                                if (activeModelSel.isNotBlank() && activeModelSel !in it) activeModelSel = ""
                                 loadingModels = false
                             }.onFailure {
                                 loadingModels = false
@@ -198,10 +200,10 @@ fun SettingsScreen(
                         onClick = {
                             if (formUrl.isBlank()) { errMsg = "Base URL is empty"; return@Button }
                             val id = editing?.id ?: ProviderStore.newId()
-                            val keptModel = editing?.model?.takeIf { it in selectedModels }
-                                ?: selectedModels.firstOrNull() ?: editing?.model ?: ""
+                            // the one chip the user tapped IS the active model; no silent fallback
+                            val allModels = (fetchedModels + (if (activeModelSel.isNotBlank()) listOf(activeModelSel) else emptyList())).distinct()
                             val np = ProviderCfg(id, formName.ifBlank { "Provider" },
-                                formUrl.trim(), formKey.trim(), selectedModels.toList(), keptModel)
+                                formUrl.trim(), formKey.trim(), allModels, activeModelSel.trim())
                             val rest = providers.filter { it.id != id }
                             val newList = rest + np
                             onProvidersChange(newList, if (activeId == null || id == activeId) id else activeId)
@@ -225,8 +227,8 @@ fun SettingsScreen(
                     Button(onClick = {
                         val m = customModel.trim()
                         if (m.isNotBlank()) {
-                            selectedModels = selectedModels + m
                             fetchedModels = (fetchedModels + m).distinct()
+                            activeModelSel = m
                             customModel = ""
                         }
                     }) { Text("+", fontSize = 20.sp) }
@@ -241,15 +243,17 @@ fun SettingsScreen(
                     )
                     val filtered = if (modelQuery.isBlank()) fetchedModels
                         else fetchedModels.filter { it.contains(modelQuery.trim(), ignoreCase = true) }
-                    Text("SELECT MODELS (${selectedModels.size}/${fetchedModels.size} • showing ${filtered.size})",
-                        style = MaterialTheme.typography.labelLarge, color = AppColors.textSecondary)
+                    Text(if (activeModelSel.isBlank()) "TAP A MODEL TO SELECT IT (${filtered.size} shown)"
+                         else "ACTIVE MODEL: $activeModelSel  (tap another to switch)",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (activeModelSel.isBlank()) AppColors.danger else AppColors.accent1)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         filtered.forEach { m ->
-                            val sel = m in selectedModels
+                            val sel = m == activeModelSel
                             FilterChip(
                                 selected = sel,
                                 onClick = {
-                                    selectedModels = if (sel) selectedModels - m else selectedModels + m
+                                    activeModelSel = m
                                 },
                                 label = { Text(m, fontSize = 11.sp) },
                                 colors = FilterChipDefaults.filterChipColors(

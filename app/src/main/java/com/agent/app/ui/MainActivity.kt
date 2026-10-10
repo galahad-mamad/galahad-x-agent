@@ -133,13 +133,13 @@ fun AppNavigation(
     // multi-provider/models - ProviderStore is the source of truth
     val ctx = LocalContext.current
     var providers by remember {
-        mutableStateOf(ProviderStore.ensureSeeded(ctx, "", "", "auto").first)
+        mutableStateOf(ProviderStore.ensureSeeded(ctx, "", "", "").first)
     }
     var activeId by remember {
-        mutableStateOf(ProviderStore.ensureSeeded(ctx, "", "", "auto").second)
+        mutableStateOf(ProviderStore.ensureSeeded(ctx, "", "", "").second)
     }
     val activeProvider = providers.find { it.id == activeId } ?: providers.firstOrNull()
-    var apiModel by remember { mutableStateOf(activeProvider?.model ?: "auto") }
+    var apiModel by remember { mutableStateOf(activeProvider?.model ?: "") }
     var apiKey by remember { mutableStateOf(activeProvider?.apiKey ?: "") }
     var apiEndpoint by remember { mutableStateOf(activeProvider?.baseUrl ?: "") }
     
@@ -172,7 +172,7 @@ fun AppNavigation(
                     val a = list.find { it.id == act } ?: list.firstOrNull()
                     apiKey = a?.apiKey ?: ""
                     apiEndpoint = a?.baseUrl ?: ""
-                    apiModel = a?.model ?: "auto"
+                    apiModel = a?.model ?: ""
                 },
                 onBack = { navController.popBackStack() }
             )

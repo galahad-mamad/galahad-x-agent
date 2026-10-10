@@ -60,7 +60,7 @@ fun ChatScreen(
     serviceEnabled: Boolean = true,
     onRefreshService: () -> Unit = {},
     providerName: String = "",
-    modelName: String = "auto"
+    modelName: String = ""
 ) {
     val messages by chatController.messages.collectAsState()
     val isProcessing by chatController.isProcessing.collectAsState()
@@ -144,7 +144,7 @@ fun ChatScreen(
                                             )
                                     )
                                     Spacer(Modifier.width(5.dp))
-                                    val modelLabel = if (modelName.isBlank()) "auto" else modelName
+                                    val modelLabel = if (modelName.isBlank()) "no model selected" else modelName
                                     val provLabel = providerName.ifBlank { "no provider" }
                                     Text(
                                         if (isProcessing) "${agentStatus.ifBlank { "Working" }} • $modelLabel • ${elapsed}s"
